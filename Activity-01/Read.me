@@ -1,0 +1,12 @@
+Enhancement
+Write the scanned results to a file called output.csv.
+------------------------------------------------------
+import csv
+
+file_data = []  
+
+with open("output.csv", "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["file", "size_kb"])
+        writer.writerows(file_data)
+    print("Results written to: output.csv")
