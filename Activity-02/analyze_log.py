@@ -16,28 +16,34 @@ python analyze_log.py cowrie-tiny.log --task connections
 python analyze_log.py cowrie-tiny.log --task identify-bots --min-ips 3
 """
 
+
+
 import argparse
 import re
 from collections import Counter, defaultdict
 from datetime import datetime
 
 # ── Regex patterns ──────────────────────────────────────────────────────────
+
+# Pattern for failed logins — extracts IP from failed login lines
 FAILED_LOGIN_PATTERN = re.compile(
-    r"\[HoneyPotSSHTransport,\d+,(?P<ip>\d+\.\d+\.\d+\.\d+)\].*?"
-    r"login attempt \[.*?/.*?\] failed"
+    r"\[HoneyPotSSHTransport,\d+,(?P<ip>\d+\.\d+\.\d+\.\d+)\].*?login attempt \[.*?/.*?\] failed"
 )
 
+
+# Pattern for new SSH connections
 NEW_CONN_PATTERN = re.compile(
     r"(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z "
     r"\[cowrie\.ssh\.factory\.CowrieSSHFactory\] New connection: "
     r"(?P<ip>\d+\.\d+\.\d+\.\d+):\d+"
 )
 
+# Pattern for successful login — extracts username, password, IP
 SUCCESS_LOGIN_PATTERN = re.compile(
-    r"\[HoneyPotSSHTransport,\d+,(?P<ip>\d+\.\d+\.\d+\.\d+)\].*?"
-    r"login attempt \[(?P<user>[^/]+)/(?P<pw>[^\]]+)\] succeeded"
+    rb"login attempt \[b'(.*?)'/b'(.*?)'\] succeeded.*?\[(.*?)\]"
 )
 
+# Pattern for SSH client fingerprint from IP
 FINGERPRINT_PATTERN = re.compile(
     r"\[HoneyPotSSHTransport,\d+,(?P<ip>\d+\.\d+\.\d+\.\d+)\].*?"
     r"SSH client hassh fingerprint: (?P<fp>[0-9a-f:]{32})"
@@ -54,23 +60,27 @@ def _print_counter(counter: Counter, head1: str, head2: str, sort_keys=False):
     for key, cnt in items:
         print(f"{key:<{width}} {cnt:>8}")
 
-# ── TODO Task 1: fill this in ───────────────────────────────────────────────
+# ── Task 1: analyze_failed_logins ───────────────────────────────────────────
 
-def analyze_failed_logins(path: str, min_count: int):
-    """Parse *failed* SSH login attempts and show a count per source IP.
+def analyze_failed_logins(logfile, min_count):
+    failed_counter = Counter()
 
-    You should:
-    1. Iterate over each line in ``path``.
-    2. Use ``FAILED_LOGIN_PATTERN`` to search the line.
-    3. Increment a Counter keyed by IP when a match is found.
-    4. After reading the file, *filter out* any IP whose count is
-       below ``min_count``.
-    5. Print the results using ``_print_counter``.
-    """
-    # TODO: replace the placeholder implementation below
-    print("[TODO] analyze_failed_logins not yet implemented — write your code here!\n")
+    with open(logfile, "r", encoding="utf-8") as f:  # text mode
+        for line in f:
+            match = FAILED_LOGIN_PATTERN.search(line)
+            if match:
+                ip = match.group("ip")
+                failed_counter[ip] += 1
 
-# ── Task 2 (already done) ───────────────────────────────────────────────────
+    for ip in list(failed_counter):
+        if failed_counter[ip] < min_count:
+            del failed_counter[ip]
+
+    print(f"\n🔐 Failed login attempts by IP (at least {min_count}):")
+    _print_counter(failed_counter, "IP Address", "Count")
+
+
+# ── Task 2: already complete (connections) ──────────────────────────────────
 
 def connections(path: str):
     per_min = Counter()
@@ -83,21 +93,29 @@ def connections(path: str):
     print("Connections per minute")
     _print_counter(per_min, "Timestamp", "Count", sort_keys=True)
 
-# ── TODO Task 3: fill this in ───────────────────────────────────────────────
+# ── Task 3: analyze_successful_creds ────────────────────────────────────────
 
-def analyze_successful_creds(path: str):
-    """Display username/password pairs that *succeeded* and how many unique IPs used each.
+def analyze_successful_creds(logfile):
+    cred_map = defaultdict(set)
 
-    Steps:
-    • Iterate lines and apply ``SUCCESS_LOGIN_PATTERN``.
-    • Build a ``defaultdict(set)`` mapping ``(user, pw)`` → set of IPs.
-    • After reading, sort the mapping by descending IP count and print a
-      three‑column table (Username, Password, IP_Count).
-    """
-    # TODO: replace the placeholder implementation below
-    print("[TODO] analyze_successful_creds not yet implemented — write your code here!\n")
+    with open(logfile, "rb") as f:
+        for line in f:
+            match = SUCCESS_LOGIN_PATTERN.search(line)
+            if match:
+                user, password, ip = match.groups()
+                creds = (user.decode(), password.decode())
+                cred_map[creds].add(ip.decode())
 
-# ── Task 4 (bot fingerprints) already implemented ───────────────────────────
+    sorted_creds = sorted(
+        cred_map.items(), key=lambda item: len(item[1]), reverse=True
+    )
+
+    print("\n✅ Successful credential usage (by unique IPs):")
+    print(f"{'Username':<15} {'Password':<15} {'# IPs'}")
+    for (user, password), ips in sorted_creds:
+        print(f"{user:<15} {password:<15} {len(ips)}")
+
+# ── Task 4: already complete (identify bots) ────────────────────────────────
 
 def identify_bots(path: str, min_ips: int):
     fp_map = defaultdict(set)
@@ -113,7 +131,7 @@ def identify_bots(path: str, min_ips: int):
     for fp, ips in sorted(bots.items(), key=lambda x: len(x[1]), reverse=True):
         print(f"{fp:<47} {len(ips):>6}")
 
-# ── CLI ─────────────────────────────────────────────────────────────────────
+# ── CLI main() ──────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="Cowrie log analyzer — student template")
@@ -137,7 +155,6 @@ def main():
         analyze_successful_creds(args.logfile)
     elif args.task == "identify-bots":
         identify_bots(args.logfile, args.min_ips)
-
 
 if __name__ == "__main__":
     main()
